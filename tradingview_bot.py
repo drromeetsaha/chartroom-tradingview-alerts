@@ -1,10 +1,11 @@
 import telebot
 from flask import Flask, request
 import json
+import os
 from datetime import datetime
 import pytz
 
-BOT_TOKEN = "8795864665:AAF3_yW2LIomkjCK9eZBZOvExpit-e838GE"
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CHAT_ID = -1002599963619
@@ -17,7 +18,8 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def receive_alert():
     try:
-        data = request.get_json()
+        # Try JSON first, then form data (TradingView sends form data)
+        data = request.get_json(silent=True) or request.form.to_dict()
         
         if not data:
             return {'status': 'error', 'message': 'No data received'}, 400
@@ -67,4 +69,5 @@ if __name__ == '__main__':
     print(f"Signals Topic: {SIGNALS_TOPIC}")
     print("Webhook endpoint: /webhook")
     print("="*60)
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
