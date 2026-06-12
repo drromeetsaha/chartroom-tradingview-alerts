@@ -8,7 +8,9 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CHAT_ID = -1002599963619
-SIGNALS_TOPIC = 1
+# Signals (Don't Chat) is the forum's General topic - Telegram requires
+# omitting message_thread_id (not passing 1) to post there.
+SIGNALS_TOPIC = None
 
 IST = pytz.timezone('Asia/Kolkata')
 
@@ -74,11 +76,14 @@ def receive_alert():
 
         # Send to Signals topic
         try:
+            send_kwargs = {'parse_mode': 'Markdown'}
+            if SIGNALS_TOPIC is not None:
+                send_kwargs['message_thread_id'] = SIGNALS_TOPIC
+
             sent = bot.send_message(
                 CHAT_ID,
                 formatted_alert,
-                message_thread_id=SIGNALS_TOPIC,
-                parse_mode="Markdown"
+                **send_kwargs
             )
             print(f"✅ Alert posted to Signals (message_id={sent.message_id}): {alert_message[:50]}...")
             return {'status': 'success', 'message': 'Alert posted'}, 200
