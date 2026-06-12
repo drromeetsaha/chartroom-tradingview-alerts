@@ -18,8 +18,14 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def receive_alert():
     try:
-        # Try JSON first, then form data (TradingView sends form data)
+        # Try multiple ways to get data
         data = request.get_json(silent=True) or request.form.to_dict()
+        
+        # If still empty, try raw body
+        if not data or not any(data.values()):
+            raw_body = request.get_data(as_text=True)
+            print(f"📥 Raw body: {raw_body}")
+            data = {'raw': raw_body} if raw_body else {}
         
         # Debug: log incoming data
         print(f"📥 Webhook received - Data: {data}")
@@ -28,8 +34,11 @@ def receive_alert():
             print("❌ No data in webhook")
             return {'status': 'error', 'message': 'No data received'}, 400
         
-        # Extract message from TradingView alert
-        alert_message = data.get('message', '') or data.get('msg', '') or str(data)
+        # Extract message - try multiple fields
+        alert_message = (data.get('message', '') or 
+                        data.get('msg', '') or 
+                        data.get('raw', '') or 
+                        str(data))
         
         if not alert_message:
             print("⚠️ No message field found - using raw data")
