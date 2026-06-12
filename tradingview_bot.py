@@ -18,31 +18,41 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def receive_alert():
     try:
-        # Try multiple ways to get data
-        data = request.get_json(silent=True) or request.form.to_dict()
+        # Get raw body first
+        raw_body = request.get_data(as_text=True)
+        print(f"📥 Raw webhook body: {raw_body}")
         
-        # If still empty, try raw body
-        if not data or not any(data.values()):
-            raw_body = request.get_data(as_text=True)
-            print(f"📥 Raw body: {raw_body}")
-            data = {'raw': raw_body} if raw_body else {}
+        # Try JSON
+        data = request.get_json(silent=True)
+        if data:
+            print(f"📥 JSON data: {data}")
         
-        # Debug: log incoming data
-        print(f"📥 Webhook received - Data: {data}")
-        
+        # Try form data
         if not data:
-            print("❌ No data in webhook")
-            return {'status': 'error', 'message': 'No data received'}, 400
+            data = request.form.to_dict()
+            if data:
+                print(f"📥 Form data: {data}")
         
-        # Extract message - try multiple fields
-        alert_message = (data.get('message', '') or 
-                        data.get('msg', '') or 
-                        data.get('raw', '') or 
-                        str(data))
+        # Extract message from any available source
+        alert_message = None
         
+        if data:
+            # Try common field names
+            alert_message = (data.get('message', '') or 
+                            data.get('msg', '') or 
+                            data.get('text', '') or 
+                            data.get('alert', '') or
+                            list(data.values())[0] if data else '')
+        
+        # If no message from structured data, use raw body
+        if not alert_message and raw_body:
+            alert_message = raw_body
+        
+        # Final fallback
         if not alert_message:
-            print("⚠️ No message field found - using raw data")
-            alert_message = str(data)[:200]  # Use first 200 chars of data
+            alert_message = "TradingView Alert Triggered"
+        
+        print(f"✅ Alert message: {alert_message[:100]}")
         
         # Get current time in IST
         current_time = datetime.now(IST).strftime("%H:%M:%S")
