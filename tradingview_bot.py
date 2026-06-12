@@ -21,14 +21,19 @@ def receive_alert():
         # Try JSON first, then form data (TradingView sends form data)
         data = request.get_json(silent=True) or request.form.to_dict()
         
+        # Debug: log incoming data
+        print(f"📥 Webhook received - Data: {data}")
+        
         if not data:
+            print("❌ No data in webhook")
             return {'status': 'error', 'message': 'No data received'}, 400
         
         # Extract message from TradingView alert
-        alert_message = data.get('message', '')
+        alert_message = data.get('message', '') or data.get('msg', '') or str(data)
         
         if not alert_message:
-            return {'status': 'error', 'message': 'No message in alert'}, 400
+            print("⚠️ No message field found - using raw data")
+            alert_message = str(data)[:200]  # Use first 200 chars of data
         
         # Get current time in IST
         current_time = datetime.now(IST).strftime("%H:%M:%S")
