@@ -13,6 +13,10 @@ CHAT_ID = -1002599963619
 # Signals (Don't Chat) is the forum's General topic - Telegram requires
 # omitting message_thread_id (not passing 1) to post there.
 SIGNALS_TOPIC = None
+# Doc (12 Nov): the Nifty scalping indicator's alerts ("ChartRoom Nifty BUY | SL ..", "ChartRoom Nifty TP | ..", etc.)
+# go to the Nifty & Indices topic instead of Signals. Everything else stays in Signals.
+NIFTY_TOPIC = 10717
+NIFTY_PREFIX = "chartroom nifty"
 
 IST = pytz.timezone('Asia/Kolkata')
 
@@ -22,14 +26,14 @@ WEBHOOK_KEY = os.environ.get('WEBHOOK_KEY', '')
 REQUIRE_KEY = os.environ.get('REQUIRE_KEY', '') == '1'
 
 
-def post_to_signals(text_html, text_plain):
+def post_to_signals(text_html, text_plain, topic=SIGNALS_TOPIC):
     """Posts to Signals with up to 3 tries; falls back to plain text if Telegram rejects the formatting."""
     last = None
     for attempt in range(3):
         try:
             kwargs = {'parse_mode': 'HTML'} if text_html else {}
-            if SIGNALS_TOPIC is not None:
-                kwargs['message_thread_id'] = SIGNALS_TOPIC
+            if topic is not None:
+                kwargs['message_thread_id'] = topic
             return bot.send_message(CHAT_ID, text_html or text_plain, **kwargs)
         except Exception as e:
             last = e
@@ -106,8 +110,15 @@ def receive_alert(key=None):
 
         # Send to Signals topic
         try:
-            sent = post_to_signals(formatted_html, formatted_plain)
-            print(f"✅ Alert posted to Signals (message_id={sent.message_id}): {alert_message[:50]}...")
+            is_nifty = alert_message.strip().lower().startswith(NIFTY_PREFIX)
+            try:
+                sent = post_to_signals(formatted_html, formatted_plain, NIFTY_TOPIC if is_nifty else SIGNALS_TOPIC)
+            except Exception as e:
+                if not is_nifty:
+                    raise
+                print(f"⚠️ Nifty topic post failed ({e}); falling back to Signals so the alert is not lost")
+                sent = post_to_signals(formatted_html, formatted_plain)
+            print(f"✅ Alert posted to {'Nifty & Indices' if is_nifty else 'Signals'} (message_id={sent.message_id}): {alert_message[:50]}...")
             return {'status': 'success', 'message': 'Alert posted'}, 200
 
         except Exception as e:
