@@ -130,6 +130,76 @@ def receive_alert(key=None):
         return {'status': 'error', 'message': str(e)}, 400
 
 
+# ---- Chartink scan alerts (replaces the IFTTT relay; Doc, 16 Nov 2026) ----
+# Chartink webhook body (editable "payload columns" in the alert): {"value1": scan name,
+# "value2": "SYM - price, SYM - price", "value3": " @ 7:01 pm"}. Native fields (scan_name, stocks, trigger_prices,
+# triggered_at) are accepted too. Posted to Signals as a clean one-message alert.
+CHARTINK_KEY = os.environ.get('CHARTINK_KEY', '')
+# Comma-separated scan names (lower case) that post a given stock at most once a day (e.g. noisy daily scans). Empty = off.
+ONCE_PER_DAY = {s.strip().lower() for s in os.environ.get('ONCE_PER_DAY_SCANS', '').split(',') if s.strip()}
+_seen_today = {}  # (scan, stock) -> date
+
+
+def parse_chartink(data):
+    """Returns (scan_name, [(stock, price_or_None)], time_text) from either payload shape."""
+    scan = str(data.get('value1') or data.get('scan_name') or data.get('alert_name') or 'Chartink scan').strip()
+    pairs = []
+    if data.get('stocks'):
+        stocks = [s.strip() for s in str(data['stocks']).split(',') if s.strip()]
+        prices = [p.strip() for p in str(data.get('trigger_prices', '')).split(',')]
+        for i, s in enumerate(stocks):
+            pairs.append((s, prices[i] if i < len(prices) and prices[i] else None))
+    else:
+        for part in str(data.get('value2') or '').split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if ' - ' in part:
+                s, p = part.rsplit(' - ', 1)
+                pairs.append((s.strip(), p.strip() or None))
+            else:
+                pairs.append((part, None))
+    when = str(data.get('value3') or data.get('triggered_at') or '').strip().lstrip('@').strip()
+    return scan, pairs, when
+
+
+@app.route('/chartink/<key>', methods=['GET', 'POST'])
+def receive_chartink(key):
+    if not CHARTINK_KEY or key != CHARTINK_KEY:
+        return {'status': 'error', 'message': 'not found'}, 404
+    if request.method == 'GET':
+        return {'status': 'ok', 'message': 'chartink endpoint is up, send a POST'}, 200
+    try:
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        print(f"📥 Chartink: {str(data)[:300]}")
+        scan, pairs, when = parse_chartink(data)
+        today = datetime.now(IST).date()
+        if scan.lower() in ONCE_PER_DAY:
+            fresh = []
+            for s, p in pairs:
+                if _seen_today.get((scan.lower(), s)) != today:
+                    _seen_today[(scan.lower(), s)] = today
+                    fresh.append((s, p))
+            pairs = fresh
+            if not pairs:
+                print(f"↩️ Chartink {scan}: already posted today, skipped")
+                return {'status': 'ok', 'message': 'duplicate skipped'}, 200
+        if not pairs:
+            print(f"↩️ Chartink {scan}: no stocks in payload, nothing to post")
+            return {'status': 'ok', 'message': 'no stocks'}, 200
+        when = when or datetime.now(IST).strftime("%I:%M %p").lstrip('0').lower()
+        lines_h = [f"{html.escape(s)}" + (f" ₹{html.escape(p)}" if p else "") for s, p in pairs]
+        lines_p = [f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs]
+        head = f"🔔 {scan} · {when}"
+        sent = post_to_signals(f"🔔 <b>{html.escape(scan)}</b> · {html.escape(when)}\n" + "\n".join(lines_h),
+                               head + "\n" + "\n".join(lines_p))
+        print(f"✅ Chartink posted (message_id={sent.message_id}): {scan}: {len(pairs)} stock(s)")
+        return {'status': 'success', 'message': 'Alert posted'}, 200
+    except Exception as e:
+        print(f"❌ Chartink webhook error: {e}")
+        return {'status': 'error', 'message': str(e)}, 500
+
+
 @app.route('/health', methods=['GET'])
 def health():
     return {
