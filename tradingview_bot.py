@@ -1,6 +1,7 @@
 import telebot
 from flask import Flask, request
 import html
+import re
 import os
 import time
 from datetime import datetime
@@ -140,9 +141,16 @@ ONCE_PER_DAY = {s.strip().lower() for s in os.environ.get('ONCE_PER_DAY_SCANS', 
 _seen_today = {}  # (scan, stock) -> date
 
 
+def clean_scan_name(name):
+    """Posts show just the setup's name (Doc, 17 Nov): drops a 'Dr. Romeet Saha-' author prefix and writes EMA in capitals."""
+    name = re.sub(r'(?i)^dr\.?\s*romeet\s*saha\s*[-\u2013:]+\s*', '', name).strip()
+    return re.sub(r'(?i)\bema\b', 'EMA', name)
+
+
 def parse_chartink(data):
     """Returns (scan_name, [(stock, price_or_None)], time_text) from either payload shape."""
     scan = str(data.get('value1') or data.get('scan_name') or data.get('alert_name') or 'Chartink scan').strip()
+    scan = clean_scan_name(scan)
     pairs = []
     if data.get('stocks'):
         stocks = [s.strip() for s in str(data['stocks']).split(',') if s.strip()]
