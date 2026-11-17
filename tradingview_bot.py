@@ -144,6 +144,11 @@ _seen_today = {}  # (scan, stock) -> date
 def clean_scan_name(name):
     """Posts show just the setup's name (Doc, 17 Nov): drops a 'Dr. Romeet Saha-' author prefix and writes EMA in capitals."""
     name = re.sub(r'(?i)^dr\.?\s*romeet\s*saha\s*[-\u2013:]+\s*', '', name).strip()
+    if re.match(r'(?i)^cr\s', name):
+        # Doc (17 Nov): my own scans post under the setup's plain name ("CR Inside Bar Daily" -> "Inside Bar", "CR FnO 75m Breakout" -> "75m Breakout")
+        name = re.sub(r'(?i)^cr\s+', '', name)
+        name = re.sub(r'(?i)\bfno\s+', '', name)
+        name = re.sub(r'(?i)\s+daily$', '', name).strip()
     return re.sub(r'(?i)\bema\b', 'EMA', name)
 
 
