@@ -201,6 +201,9 @@ def receive_chartink(key):
             print(f"↩️ Chartink {scan}: no stocks in payload, nothing to post")
             return {'status': 'ok', 'message': 'no stocks'}, 200
         when = when or datetime.now(IST).strftime("%I:%M %p").lstrip('0').lower()
+        if request.args.get('dry') == '1':
+            # Doc (17 Nov): tests must never land in a public topic. ?dry=1 returns what would be posted, posts nothing.
+            return {'status': 'dry', 'would_post': f"🔔 {scan} · {when}\n" + "\n".join(f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs)}, 200
         lines_h = [f"{html.escape(s)}" + (f" ₹{html.escape(p)}" if p else "") for s, p in pairs]
         lines_p = [f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs]
         head = f"🔔 {scan} · {when}"
