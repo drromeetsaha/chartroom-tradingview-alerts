@@ -26,6 +26,7 @@ IST = pytz.timezone('Asia/Kolkata')
 WEBHOOK_KEY = os.environ.get('WEBHOOK_KEY', '')
 REQUIRE_KEY = os.environ.get('REQUIRE_KEY', '') == '1'
 NIFTY_HINT = os.environ.get('NIFTY_HINT', '') == '1'
+NIFTY_DISCLAIMER = os.environ.get('NIFTY_DISCLAIMER', '1') != '0'  # on unless set to 0
 
 
 def post_to_signals(text_html, text_plain, topic=SIGNALS_TOPIC):
@@ -114,6 +115,11 @@ def receive_alert(key=None):
             # signal text itself is unchanged for members' own automations. Off unless NIFTY_HINT=1.
             formatted_html += "\n\n<i>Entry = Fill price · valid till 3:10 PM IST</i>"
             formatted_plain += "\n\nEntry = Fill price · valid till 3:10 PM IST"
+
+        if NIFTY_DISCLAIMER and alert_message.strip().lower().startswith(NIFTY_PREFIX):
+            # Doc (19 Nov): every Nifty scalping signal carries the disclaimer, as the LAST line so the signal text above is unchanged
+            formatted_html += "\n\n<i>Educational purposes only.</i>"
+            formatted_plain += "\n\nEducational purposes only."
 
         # Send to Signals topic
         try:
