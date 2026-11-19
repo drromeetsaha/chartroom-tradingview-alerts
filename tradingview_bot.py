@@ -25,6 +25,7 @@ IST = pytz.timezone('Asia/Kolkata')
 # uses that URL, set REQUIRE_KEY=1 and the old open /webhook stops accepting posts.
 WEBHOOK_KEY = os.environ.get('WEBHOOK_KEY', '')
 REQUIRE_KEY = os.environ.get('REQUIRE_KEY', '') == '1'
+NIFTY_HINT = os.environ.get('NIFTY_HINT', '') == '1'
 
 
 def post_to_signals(text_html, text_plain, topic=SIGNALS_TOPIC):
@@ -108,6 +109,11 @@ def receive_alert(key=None):
         formatted_html = (f"🔔 <b>TRADINGVIEW ALERT</b>\n\n{html.escape(alert_message)}\n\n"
                           f"<i>Time: {current_time} IST</i>")
         formatted_plain = f"🔔 TRADINGVIEW ALERT\n\n{alert_message}\n\nTime: {current_time} IST"
+        if NIFTY_HINT and alert_message.strip().lower().startswith(NIFTY_PREFIX) and re.search(r"nifty\s+(buy|sell)\b", alert_message, re.I):
+            # Doc (19 Nov): members asked what "Fill" means and how long a signal lasts. Added as a LAST line only, so the
+            # signal text itself is unchanged for members' own automations. Off unless NIFTY_HINT=1.
+            formatted_html += "\n\n<i>Entry = Fill price · valid till 3:10 PM IST</i>"
+            formatted_plain += "\n\nEntry = Fill price · valid till 3:10 PM IST"
 
         # Send to Signals topic
         try:
@@ -139,6 +145,7 @@ CHARTINK_KEY = os.environ.get('CHARTINK_KEY', '')
 # Comma-separated scan names (lower case) that post a given stock at most once a day (e.g. noisy daily scans). Empty = off.
 ONCE_PER_DAY = {s.strip().lower() for s in os.environ.get('ONCE_PER_DAY_SCANS', '').split(',') if s.strip()}
 _seen_today = {}  # (scan, stock) -> date
+MAX_PER_POST = max(1, int(os.environ.get('MAX_PER_POST', '12') or 12))  # stocks listed in one Chartink post
 
 
 def clean_scan_name(name):
@@ -201,14 +208,18 @@ def receive_chartink(key):
             print(f"↩️ Chartink {scan}: no stocks in payload, nothing to post")
             return {'status': 'ok', 'message': 'no stocks'}, 200
         when = when or datetime.now(IST).strftime("%I:%M %p").lstrip('0').lower()
+        more = max(0, len(pairs) - MAX_PER_POST)
+        pairs = pairs[:MAX_PER_POST]  # Doc (19 Nov): very long lists (Daily Hammer: 20+) are cut; "+N more" says so
         if request.args.get('dry') == '1':
             # Doc (17 Nov): tests must never land in a public topic. ?dry=1 returns what would be posted, posts nothing.
-            return {'status': 'dry', 'would_post': f"🔔 {scan} · {when}\n" + "\n".join(f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs)}, 200
+            return {'status': 'dry', 'would_post': f"🔔 {scan} · {when}\n" + "\n".join(f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs)
+                    + (f"\n+{more} more" if more else "")}, 200
         lines_h = [f"{html.escape(s)}" + (f" ₹{html.escape(p)}" if p else "") for s, p in pairs]
         lines_p = [f"{s}" + (f" ₹{p}" if p else "") for s, p in pairs]
         head = f"🔔 {scan} · {when}"
-        sent = post_to_signals(f"🔔 <b>{html.escape(scan)}</b> · {html.escape(when)}\n" + "\n".join(lines_h),
-                               head + "\n" + "\n".join(lines_p))
+        tail = f"\n+{more} more" if more else ""
+        sent = post_to_signals(f"🔔 <b>{html.escape(scan)}</b> · {html.escape(when)}\n" + "\n".join(lines_h) + tail,
+                               head + "\n" + "\n".join(lines_p) + tail)
         print(f"✅ Chartink posted (message_id={sent.message_id}): {scan}: {len(pairs)} stock(s)")
         return {'status': 'success', 'message': 'Alert posted'}, 200
     except Exception as e:
