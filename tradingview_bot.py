@@ -107,19 +107,22 @@ def receive_alert(key=None):
 
         # Format the alert for Telegram. The alert text is escaped: TradingView symbols like BAJAJ_AUTO or M_M
         # used to break the old Markdown formatting, and Telegram then dropped the whole alert.
+        if alert_message.strip().lower().startswith(NIFTY_PREFIX):
+            # Doc (19 Nov): members read "long" and "short", not BUY and SELL (Nifty scalping signals only)
+            alert_message = re.sub(r"\bBUY\b", "LONG", re.sub(r"\bSELL\b", "SHORT", alert_message))
         formatted_html = (f"🔔 <b>TRADINGVIEW ALERT</b>\n\n{html.escape(alert_message)}\n\n"
                           f"<i>Time: {current_time} IST</i>")
         formatted_plain = f"🔔 TRADINGVIEW ALERT\n\n{alert_message}\n\nTime: {current_time} IST"
-        if NIFTY_HINT and alert_message.strip().lower().startswith(NIFTY_PREFIX) and re.search(r"nifty\s+(buy|sell)\b", alert_message, re.I):
+        if NIFTY_HINT and alert_message.strip().lower().startswith(NIFTY_PREFIX) and re.search(r"nifty\s+(long|short)\b", alert_message, re.I):
             # Doc (19 Nov): members asked what "Fill" means and how long a signal lasts. Added as a LAST line only, so the
             # signal text itself is unchanged for members' own automations. Off unless NIFTY_HINT=1.
-            formatted_html += "\n\n<i>Entry = Fill price · valid till 3:10 PM IST</i>"
-            formatted_plain += "\n\nEntry = Fill price · valid till 3:10 PM IST"
+            formatted_html += "\n\n<i>Entry · valid till 3:10 PM IST</i>"
+            formatted_plain += "\n\nEntry · valid till 3:10 PM IST"
 
         if NIFTY_DISCLAIMER and alert_message.strip().lower().startswith(NIFTY_PREFIX):
             # Doc (19 Nov): every Nifty scalping signal carries the disclaimer, as the LAST line so the signal text above is unchanged
-            formatted_html += "\n\n<i>Educational purposes only.</i>"
-            formatted_plain += "\n\nEducational purposes only."
+            formatted_html += "\n\n<i>Educational purposes only. Not SEBI registered.</i>"
+            formatted_plain += "\n\nEducational purposes only. Not SEBI registered."
 
         # Send to Signals topic
         try:
