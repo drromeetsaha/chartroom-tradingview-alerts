@@ -27,6 +27,12 @@ WEBHOOK_KEY = os.environ.get('WEBHOOK_KEY', '')
 REQUIRE_KEY = os.environ.get('REQUIRE_KEY', '') == '1'
 NIFTY_HINT = os.environ.get('NIFTY_HINT', '') == '1'
 NIFTY_DISCLAIMER = os.environ.get('NIFTY_DISCLAIMER', '1') != '0'  # on unless set to 0
+# V996 Nifty strategy messages (21 Nov): optional emoji, then "NIFTY BUY" / "NIFTY SELL" at the very start.
+V996_NIFTY = re.compile(r"^[^\w]*\s*NIFTY (BUY|SELL)\b")
+
+
+def is_v996_nifty(message):
+    return bool(V996_NIFTY.match(message.strip()))
 
 
 def post_to_signals(text_html, text_plain, topic=SIGNALS_TOPIC):
@@ -105,6 +111,25 @@ def receive_alert(key=None):
         # Get current time in IST
         current_time = datetime.now(IST).strftime("%H:%M:%S")
 
+        # Doc (21 Nov): the V996 Nifty strategy sends finished messages ("🟢 NIFTY BUY / Stop loss / Target / Entry",
+        # "✅ NIFTY BUY closed: Target hit at ..", "🔒 NIFTY SELL: stop moved to breakeven ..") that already carry the
+        # SEBI disclaimer. Post them to Nifty & Indices exactly as written (BUY/SELL kept, no header, no extra lines),
+        # plus the time. ?dry=1 returns the text without posting (for tests; no test posts in the group).
+        dry = request.args.get('dry') == '1'
+        if is_v996_nifty(alert_message):
+            text = alert_message.strip()
+            formatted_html = f"{html.escape(text)}\n\n<i>Time: {current_time} IST</i>"
+            formatted_plain = f"{text}\n\nTime: {current_time} IST"
+            if dry:
+                return {'status': 'dry', 'topic': 'Nifty & Indices', 'text': formatted_plain}, 200
+            try:
+                sent = post_to_signals(formatted_html, formatted_plain, NIFTY_TOPIC)
+            except Exception as e:
+                print(f"⚠️ Nifty topic post failed ({e}); falling back to Signals so the alert is not lost")
+                sent = post_to_signals(formatted_html, formatted_plain)
+            print(f"✅ V996 Nifty alert posted (message_id={sent.message_id}): {text[:50]!r}")
+            return {'status': 'success', 'message': 'Alert posted'}, 200
+
         # Format the alert for Telegram. The alert text is escaped: TradingView symbols like BAJAJ_AUTO or M_M
         # used to break the old Markdown formatting, and Telegram then dropped the whole alert.
         if alert_message.strip().lower().startswith(NIFTY_PREFIX):
@@ -123,6 +148,9 @@ def receive_alert(key=None):
             # Doc (19 Nov): every Nifty scalping signal carries the disclaimer, as the LAST line so the signal text above is unchanged
             formatted_html += "\n\n<i>Educational purposes only. Not SEBI registered.</i>"
             formatted_plain += "\n\nEducational purposes only. Not SEBI registered."
+
+        if dry:
+            return {'status': 'dry', 'topic': 'Nifty & Indices' if alert_message.strip().lower().startswith(NIFTY_PREFIX) else 'Signals', 'text': formatted_plain}, 200
 
         # Send to Signals topic
         try:
