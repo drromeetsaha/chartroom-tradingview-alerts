@@ -6,6 +6,7 @@ import os
 import time
 from datetime import datetime
 import pytz
+import daily_cleanup
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -127,6 +128,7 @@ def receive_alert(key=None):
             except Exception as e:
                 print(f"⚠️ Nifty topic post failed ({e}); falling back to Signals so the alert is not lost")
                 sent = post_to_signals(formatted_html, formatted_plain)
+            daily_cleanup.record(sent.message_id, formatted_plain)
             print(f"✅ V996 Nifty alert posted (message_id={sent.message_id}): {text[:50]!r}")
             return {'status': 'success', 'message': 'Alert posted'}, 200
 
@@ -162,6 +164,8 @@ def receive_alert(key=None):
                     raise
                 print(f"⚠️ Nifty topic post failed ({e}); falling back to Signals so the alert is not lost")
                 sent = post_to_signals(formatted_html, formatted_plain)
+            if is_nifty:
+                daily_cleanup.record(sent.message_id, formatted_plain)
             print(f"✅ Alert posted to {'Nifty & Indices' if is_nifty else 'Signals'} (message_id={sent.message_id}): {alert_message[:50]}...")
             return {'status': 'success', 'message': 'Alert posted'}, 200
 
@@ -271,6 +275,10 @@ def health():
         'bot_token_set': bool(BOT_TOKEN),
         'chat_id': CHAT_ID,
         'signals_topic': SIGNALS_TOPIC,
+        'cleanup_on': daily_cleanup.ENABLED,
+        'cleanup_at': daily_cleanup.DELETE_AT,
+        'cleanup_waiting': daily_cleanup.pending(),
+        'cleanup_on_volume': daily_cleanup.DATA_DIR == '/app/data',
     }, 200
 
 
@@ -281,5 +289,6 @@ if __name__ == '__main__':
     print(f"Signals Topic: {SIGNALS_TOPIC}")
     print("Webhook endpoint: /webhook")
     print("=" * 60)
+    daily_cleanup.start(bot, CHAT_ID)
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
